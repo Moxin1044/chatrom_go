@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>在线聊天室</title>
+    <!-- 直接引用 Gin 静态资源 -->
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <script src="/static/js/jquery.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #00aaff, #00ffaa);
+            background-size: cover;
+            background-attachment: fixed;
+            background-position: center;
+            font-family: 'Arial', sans-serif;
+        }
+        .container { max-width: 800px; margin-top: 30px; }
+        .chat-box {
+            height: 400px;
+            overflow-y: scroll;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 15px;
+            background-color: white;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .message {
+            max-width: 70%;
+            padding: 12px;
+            border-radius: 15px;
+            background-color: #f1f1f1;
+            word-wrap: break-word;
+            transition: background-color 0.3s ease;
+            display: inline-block;
+            clear: both;
+            max-width: 60%;
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .message.sender {
+            align-self: flex-end;
+            background-color: #007bff;
+            color: white;
+            text-align: right;
+        }
+        .message.receiver {
+            align-self: flex-start;
+            background-color: #e1e1e1;
+            color: black;
+            text-align: left;
+        }
+        .message img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .message span.preview-text, .message a {
+            color: orange;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .input-group {
+            margin-top: 10px;
+        }
+        .input-group input, .input-group button {
+            border-radius: 20px;
+        }
+        .btn {
+            border-radius: 20px;
+        }
+        .modal-content {
+            border-radius: 15px;
+        }
+        .message-username {
+            font-size: 0.9rem;
+            font-weight: bold;
+            position: absolute;
+            top: -20px;
+            color: #888;
+        }
+        .message-username.sender { right: 0; }
+        .message-username.receiver { left: 0; }
+        .message:hover {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2 class="text-center text-white mb-4">在线聊天室</h2>
+    <div class="chat-box" id="chat-box"></div>
+
+    <form id="chat-form">
+        <div class="input-group">
+            <input type="text" id="message" class="form-control" placeholder="输入消息">
+            <button type="submit" class="btn btn-primary">发送文字消息</button>
+        </div>
+        <div class="input-group mt-2">
+            <input type="file" id="file" class="form-control">
+            <button type="submit" class="btn btn-success">发送文件</button>
+        </div>
+    </form>
+</div>
+
+<!-- 模态框用于图片预览 -->
+<div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <img id="modal-image" class="img-fluid" alt="预览图片">
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(function () {
+        var username = getCookie('username');
+        if (!username) {
+            username = prompt("请输入您的用户名");
+            setCookie('username', username);
+        }
+
+        function loadMessages() {
+            $.get('/get_messages', function(data) {
+                $('#chat-box').empty();
+                data.forEach(function(message) {
+                    var messageDiv = $('<div class="message"></div>');
+                    var usernameDiv = $('<div class="message-username"></div>');
+
+                    if (message.username === username) {
+                        messageDiv.addClass('sender');
+                        usernameDiv.addClass('sender').text(message.username);
+                    } else {
+                        messageDiv.addClass('receiver');
+                        usernameDiv.addClass('receiver').text(message.username);
+                    }
+
+                    messageDiv.append(usernameDiv);
+
+                    if (message.message_type === 'text') {
+                        messageDiv.append('<span>' + message.content + '</span>');
+                    } else if (message.message_type === 'image') {
+                        messageDiv.append('<span class="preview-text">图片消息，点击预览</span>');
+                        messageDiv.on('click', function() {
+                            $('#modal-image').attr('src', message.content);
+                            $('#imageModal').modal('show');
+                        });
+                    } else if (message.message_type === 'file') {
+                        messageDiv.append('<a href="' + message.content + '" target="_blank">点击下载文件</a>');
+                    }
+
+                    $('#chat-box').append(messageDiv);
+                });
+
+                var chatBox = $('#chat-box')[0];
+                if (chatBox.scrollHeight - chatBox.scrollTop === chatBox.clientHeight) {
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                }
+            });
+        }
+
+        setInterval(loadMessages, 1000);
+
+        $('#chat-form').submit(function(event) {
+            event.preventDefault();
+            var msg = $('#message').val();
+            var file = $('#file')[0].files[0];
+            var formData = new FormData();
+            formData.append('username', username);
+
+            if (file) {
+                formData.append('file', file);
+                formData.append('message_type', 'file');
+                formData.append('message', '');
+            } else if (msg) {
+                formData.append('message', msg);
+                formData.append('message_type', 'text');
+            } else {
+                alert("请输入消息或选择文件");
+                return;
+            }
+
+            $.ajax({
+                url: '/send_message',
+                method: 'POST',
+                data: formData,
+                contentType: false,
+                processData: false,
+                success: function() {
+                    $('#message').val('');
+                    $('#file').val('');
+                    loadMessages();
+                },
+                error: function() {
+                    alert("发送失败");
+                }
+            });
+        });
+
+        function getCookie(name) {
+            var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+            return match ? match[2] : null;
+        }
+
+        function setCookie(name, value) {
+            document.cookie = name + "=" + value + "; path=/";
+        }
+
+        loadMessages();
+    });
+</script>
+
+<!-- 引入 Bootstrap 的 JS -->
+<script src="/static/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
